@@ -1,0 +1,97 @@
+{
+  "complete_decode": true,
+  "mp4_container": true,
+  "video_stream": "Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1920x1080, 18886 kb/s, 60 fps, 60 tbr, 15360 tbn (default)",
+  "audio_stream": "Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 327 kb/s (default)",
+  "video_frames": 1158,
+  "duration_seconds": 19.3,
+  "resolution": [
+    1920,
+    1080
+  ],
+  "fps": 60.0,
+  "audio_rate": 48000,
+  "channels": 2,
+  "decoded_audio_samples": 926720,
+  "source_audio_samples": 926400,
+  "alignment_windows": [
+    {
+      "at": 0.3,
+      "offset_samples": 0,
+      "correlation": 0.9993801294916855
+    },
+    {
+      "at": 3.3,
+      "offset_samples": 0,
+      "correlation": 0.9961352014393352
+    },
+    {
+      "at": 6.3,
+      "offset_samples": 0,
+      "correlation": 0.9990977334990587
+    },
+    {
+      "at": 9.3,
+      "offset_samples": 0,
+      "correlation": 0.9998797774395942
+    },
+    {
+      "at": 12.3,
+      "offset_samples": 0,
+      "correlation": 0.9998524683224154
+    },
+    {
+      "at": 16.95,
+      "offset_samples": 0,
+      "correlation": 0.9992008431955549
+    },
+    {
+      "at": 18.9,
+      "offset_samples": 0,
+      "correlation": 0.9987559193523223
+    }
+  ],
+  "sha256": "2479fa05b1efd83f3a9f8fc3d58a61ff608199e54fc37aa36329b0bda8d287e1",
+  "bytes": 46385675,
+  "ok": true,
+  "file": "centuries-first-19p3-seconds.mp4",
+  "release": "v2.0.0",
+  "browser_check": {
+    "ok": true,
+    "network_requests_attempted": 0,
+    "page_errors": 0,
+    "initially_paused": true,
+    "play_pause": true,
+    "frame_step_seconds": 0.016666666666666663,
+    "mute": true,
+    "stops_at_seconds": 19.3,
+    "replay": true,
+    "mobile_overflow": false,
+    "deterministic_samples": 10,
+    "deterministic_samples_passed": 10
+  },
+  "portable_package": {
+    "scene_sources_match_after_path_relocation": true,
+    "player_source_identical": true,
+    "original_audio_identical": true,
+    "render_smoke": {
+      "from": 18.9,
+      "to": 19.3,
+      "resolution": [
+        640,
+        360
+      ],
+      "frames": 24,
+      "fps": 60,
+      "ok": true,
+      "page_errors": 0,
+      "network_requests_attempted": 0
+    },
+    "local_server": {
+      "root_status": 200,
+      "module_status": 200,
+      "audio_range_status": 206,
+      "font_status": 200
+    }
+  }
+}

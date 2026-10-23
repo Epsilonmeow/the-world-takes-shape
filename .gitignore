@@ -1,9 +1,7 @@
 node_modules/
-renders/
 deliverables/
-media/*.mp4
-*.log
+review/
 .env
-.env.*
+*.log
 .DS_Store
 Thumbs.db

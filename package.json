@@ -1,20 +1,20 @@
 {
   "name": "the-world-takes-shape",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "A 22-second silent industrial motion study built with Three.js and WebGL.",
+  "description": "A 19.3-second industrial motion study: steam, invention, rotary power and local control.",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node server.cjs",
-    "render": "node tools/render-ws.cjs video",
-    "stills": "node tools/render-ws.cjs stills",
-    "verify": "node tools/verify.cjs",
-    "check": "node tools/check.cjs"
+    "check": "node tools/check.cjs",
+    "stills": "node tools/render-offline.cjs --stills",
+    "render": "node tools/render-offline.cjs",
+    "verify": "python tools/verify.py"
   },
   "devDependencies": {
-    "@napi-rs/canvas": "0.1.100",
-    "playwright": "1.64.1",
-    "ws": "8.21.3"
+    "playwright": "1.62.1"
   }
 }

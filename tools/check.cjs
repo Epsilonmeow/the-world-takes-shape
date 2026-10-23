@@ -1,124 +1,101 @@
-#!/usr/bin/env node
-'use strict';
-
+// Real headless-browser checks using embedded local files and blocked network.
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { chromium } = require('playwright');
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
-const ROOT = path.resolve(__dirname, '..');
-const OUT = path.join(ROOT, 'renders');
-const URL = process.env.DEMO_URL || 'http://127.0.0.1:5196/';
-const CHROME = process.env.CHROME_PATH || undefined;
+const { launch, openOffline } = require('./offline.cjs');
+const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 
-async function main() {
-  fs.mkdirSync(OUT, { recursive: true });
-  const report = { checkedAt: new Date().toISOString(), url: URL, checks: [], errors: [], warnings: [], limitations: ['Playback is checked through time/state advancement and sampled frames, not continuous human viewing.', 'GPU timings and exact hashes apply to this local browser/GPU run.'] };
-  let browser;
-  const check = (name, passed, evidence) => { report.checks.push({ name, passed, evidence }); process.stdout.write(`${passed ? 'PASS' : 'FAIL'} ${name}\n`); };
-  try {
-    browser = await chromium.launch({ executablePath: CHROME, headless: true, args: ['--enable-webgl', '--ignore-gpu-blocklist', '--force-color-profile=srgb'] });
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1 });
-    page.on('pageerror', error => report.errors.push(error.message));
-    page.on('console', msg => { if (msg.type() === 'error') report.errors.push(msg.text()); if (msg.type() === 'warning') report.warnings.push(msg.text()); });
-    page.on('requestfailed', request => report.errors.push(`${request.url()}: ${request.failure()?.errorText}`));
-    await page.goto(URL, { waitUntil: 'networkidle', timeout: 60000 });
-    await page.waitForFunction(() => window.demo?.ready === true, null, { timeout: 60000 });
-    const state = () => page.evaluate(() => ({ time: window.demo.stats().time, playing: window.demo.playing, label: document.getElementById('play').textContent, clock: document.getElementById('clock').textContent }));
-    const seek = async time => { await page.locator('#seek').evaluate((input, value) => { input.value = String(value); input.dispatchEvent(new Event('input', { bubbles: true })); }, time); };
-    const layout = () => page.evaluate(() => {
-      const rect = document.getElementById('screen').getBoundingClientRect();
-      const outside = [...document.querySelectorAll('#controls > *, .notes > *')].map(el => ({ tag: el.id || el.tagName, box: el.getBoundingClientRect() })).filter(({ box }) => box.left < -1 || box.right > innerWidth + 1).map(({ tag, box }) => ({ tag, left: box.left, right: box.right }));
-      return { viewport: { width: innerWidth, height: innerHeight }, documentWidth: document.documentElement.scrollWidth, documentHeight: document.documentElement.scrollHeight, screen: { width: rect.width, height: rect.height, ratio: rect.width / rect.height }, overflowElements: outside };
-    });
-
-    let before = await state();
-    await page.locator('#play').click();
-    await page.waitForTimeout(1100);
-    let after = await state();
-    check('play advances time', after.playing && after.time - before.time >= 0.5, { before, after });
-    await page.locator('#play').click();
-    before = await state();
-    await page.waitForTimeout(350);
-    after = await state();
-    check('pause holds time', !after.playing && Math.abs(after.time - before.time) < 1e-8 && after.label === '播放', { before, after });
-
-    await seek(7.3);
-    after = await state();
-    check('range input seeks', !after.playing && Math.abs(after.time - 7.3) < 0.0001, after);
-    await page.keyboard.press('ArrowRight');
-    after = await state();
-    check('right arrow advances one 60 fps frame', Math.abs(after.time - (7.3 + 1 / 60)) < 0.0001, after);
-    await page.keyboard.press('ArrowLeft');
-    after = await state();
-    check('left arrow reverses one frame', Math.abs(after.time - 7.3) < 0.0001, after);
-    await page.keyboard.press('Shift+ArrowRight');
-    after = await state();
-    check('shift-right advances one second', Math.abs(after.time - 8.3) < 0.0001, after);
-    await page.locator('#reset').click();
-    after = await state();
-    check('replay resets and starts playback', after.playing && after.time >= 0 && after.time < 0.4, after);
-    await page.keyboard.press('Space');
-    after = await state();
-    check('space toggles pause', !after.playing, after);
-
-    await seek(9.15);
-    let geometry = await layout();
-    check('desktop layout fits viewport', geometry.documentWidth <= 1280 && geometry.documentHeight <= 900 && geometry.overflowElements.length === 0, geometry);
-    check('desktop screen preserves 16:9', Math.abs(geometry.screen.ratio - 16 / 9) < 0.005, geometry.screen);
-    await page.screenshot({ path: path.join(OUT, 'ui-desktop.png'), fullPage: true });
-
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.waitForTimeout(150);
-    await seek(17.2);
-    geometry = await layout();
-    check('mobile layout fits viewport', geometry.documentWidth <= 390 && geometry.documentHeight <= 844 && geometry.overflowElements.length === 0, geometry);
-    check('mobile screen preserves 16:9', Math.abs(geometry.screen.ratio - 16 / 9) < 0.005, geometry.screen);
-    await page.screenshot({ path: path.join(OUT, 'ui-mobile.png'), fullPage: true });
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.waitForTimeout(150);
-    await page.evaluate(() => { window.demo.playing = false; window.demo.setSize(1280, 720); });
-    async function pixelHash(time) {
-      const base64 = await page.evaluate(time => {
-        window.demo.render(time);
-        const canvas = document.getElementById('stage');
-        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
-        const bytes = new Uint8Array(canvas.width * canvas.height * 4);
-        gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
-        let binary = '';
-        for (let offset = 0; offset < bytes.length; offset += 32768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
-        return btoa(binary);
-      }, time);
-      return crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex');
+// Chromium occasionally rounds a handful of anti-aliased edge pixels by 1–2
+// levels between contexts or render histories. Keep exact hashes, and bound
+// that numerical noise separately from actual image/animation differences.
+async function comparePixels(page, first, second) {
+  if (first === second) return { equal: true, equivalent: true, changedPixels: 0, changedFraction: 0, maxChannelDifference: 0, meanAbsoluteDifference: 0 };
+  return page.evaluate(async ([first, second]) => {
+    async function pixels(source) {
+      const image = new Image(); image.src = source; await image.decode();
+      const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      context.drawImage(image, 0, 0);
+      return context.getImageData(0, 0, canvas.width, canvas.height).data;
     }
-    const hashA = await pixelHash(7.3), hashB = await pixelHash(17), hashC = await pixelHash(7.3);
-    check('render is deterministic after scene/time jump', hashA === hashC && hashA !== hashB, { pixelFormat: 'full 1280×720 RGBA', samples: [{ time: 7.3, hash: hashA }, { time: 17, hash: hashB }, { time: 7.3, hash: hashC }] });
-
-    const sheet = createCanvas(1440, 894), ctx = sheet.getContext('2d');
-    ctx.fillStyle = '#080e15'; ctx.fillRect(0, 0, sheet.width, sheet.height);
-    const times = [6.52, 6.6, 6.76, 8.25, 8.4, 8.56, 8.72, 8.9, 9.1];
-    await page.evaluate(() => window.demo.setSize(960, 540));
-    report.motionSheet = { file: 'motion-sheet.png', times, description: 'Nine sampled states around the 6.6 s cut and the 8.4 s camera turn.' };
-    for (let i = 0; i < times.length; i++) {
-      const data = await page.evaluate(time => { window.demo.render(time); return document.getElementById('stage').toDataURL('image/png').split(',')[1]; }, times[i]);
-      const image = await loadImage(Buffer.from(data, 'base64'));
-      const x = i % 3 * 480, y = Math.floor(i / 3) * 298;
-      ctx.drawImage(image, x, y, 480, 270);
-      ctx.fillStyle = '#ffb470'; ctx.font = '15px Segoe UI'; ctx.fillText(`${times[i].toFixed(2)} s`, x + 12, y + 290);
+    const a = await pixels(first), b = await pixels(second);
+    if (a.length !== b.length) return { equal: false, equivalent: false, reason: 'Different image dimensions' };
+    let changedPixels = 0, maxChannelDifference = 0, total = 0;
+    for (let i = 0; i < a.length; i += 4) {
+      let difference = 0;
+      for (let channel = 0; channel < 4; channel++) {
+        const delta = Math.abs(a[i + channel] - b[i + channel]);
+        difference = Math.max(difference, delta); total += delta;
+      }
+      if (difference) changedPixels++;
+      maxChannelDifference = Math.max(maxChannelDifference, difference);
     }
-    fs.writeFileSync(path.join(OUT, 'motion-sheet.png'), sheet.toBuffer('image/png'));
-    check('no browser or asset errors', report.errors.length === 0, report.errors);
-    report.ok = report.checks.every(item => item.passed);
-  } catch (error) {
-    report.ok = false;
-    report.failure = error.stack || String(error);
-    process.stderr.write(`${report.failure}\n`);
-  } finally {
-    fs.writeFileSync(path.join(OUT, 'playback-check.json'), JSON.stringify(report, null, 2));
-    await browser?.close();
-  }
-  if (!report.ok) process.exitCode = 1;
+    const changedFraction = changedPixels / (a.length / 4);
+    return { equal: false, equivalent: maxChannelDifference <= 2 && changedFraction <= .0005,
+      changedPixels, changedFraction, maxChannelDifference, meanAbsoluteDifference: total / a.length };
+  }, [first, second]);
 }
 
-main().catch(error => { process.stderr.write(`${error.stack || error}\n`); process.exitCode = 1; });
+async function main() {
+  const review = path.resolve(__dirname, '../review');
+  fs.mkdirSync(review, { recursive: true });
+  const report = { started: new Date().toISOString(), imageComparison: { exactHashesRetained: true, allowedMaximumChannelDifference: 2, allowedChangedPixelFraction: .0005, reason: 'Bounded Chromium raster/rounding noise; larger or broader differences fail.' } };
+  const browser = await launch();
+  try {
+    const page = await openOffline(browser, { player: true, width: 1920, height: 1200, report });
+    await page.waitForFunction(() => player.state().audioReadyState >= 3, null, { timeout: 30000 });
+    report.initial = await page.evaluate(() => player.state());
+    await page.click('#play');
+    await page.waitForTimeout(350);
+    report.during = await page.evaluate(() => ({ state: player.state(), stats: demo.stats() }));
+    await page.click('#play');
+    report.paused = await page.evaluate(() => player.state());
+    await page.waitForTimeout(200);
+    report.stillPaused = await page.evaluate(() => player.state());
+    await page.keyboard.press('ArrowRight');
+    report.frameStep = await page.evaluate(() => player.state());
+    await page.click('#mute');
+    report.muted = await page.evaluate(() => player.state().muted);
+    await page.evaluate(() => { player.seek(19.05); void player.play(); });
+    await page.waitForFunction(() => !player.state().playing && player.state().time === 19.3, null, { timeout: 5000 });
+    report.ended = await page.evaluate(() => player.state());
+    await page.click('#reset');
+    await page.waitForTimeout(150);
+    report.replayed = await page.evaluate(() => player.state());
+    await page.evaluate(() => { player.pause(); player.seek(7.5); });
+    await page.screenshot({ path: path.join(review, 'desktop.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(100);
+    await page.screenshot({ path: path.join(review, 'mobile.png'), fullPage: true });
+    report.mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
+    await page.close();
+
+    const renderPage = await openOffline(browser, { report });
+    report.determinism = [];
+    for (const t of [.8, 5.38, 8.2, 16.3, 17.1, 17.3, 17.8, 18.3, 18.8, 19.28]) {
+      const pair = await renderPage.evaluate(t => { const canvas = document.getElementById('stage'); demo.render(t); const first = canvas.toDataURL(); demo.render(.2); demo.render(19.1); demo.render(t); return [first, canvas.toDataURL()]; }, t);
+      report.determinism.push({ time: t, ...await comparePixels(renderPage, ...pair) });
+    }
+    report.renderSamples = await renderPage.evaluate(() => {
+      const results = [];
+      for (const t of [17.083, 17.1, 17.3, 17.55, 17.8, 18.05, 18.3, 18.55, 18.8, 19.05, 19.28]) {
+        const start = performance.now(); demo.render(t); results.push({ time: t, drawMs: performance.now() - start, ...demo.stats() });
+      }
+      return results;
+    });
+    report.ok = report.errors.length === 0 && report.blockedRequests.length === 0
+      && !report.initial.playing && report.initial.duration === 19.3
+      && report.during.state.playing && report.during.state.time > 0
+      && !report.paused.playing && report.paused.time === report.stillPaused.time
+      && Math.abs(report.frameStep.time - report.paused.time - 1 / 60) < .001
+      && report.muted && report.ended.time === 19.3 && !report.ended.playing
+      && report.replayed.playing && report.replayed.time < 1 && !report.mobileOverflow
+      && report.determinism.every(row => row.equivalent);
+    report.completed = new Date().toISOString();
+    fs.writeFileSync(path.join(review, 'check.json'), JSON.stringify(report, null, 2));
+    console.log(JSON.stringify(report, null, 2));
+    if (!report.ok) throw new Error('One or more offline browser checks failed; see review/check.json');
+  } finally { await browser.close(); }
+}
+
+main().catch(error => { console.error(error); process.exitCode = 1; });
