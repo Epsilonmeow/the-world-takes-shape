@@ -1,0 +1,9 @@
+node_modules/
+renders/
+deliverables/
+media/*.mp4
+*.log
+.env
+.env.*
+.DS_Store
+Thumbs.db
